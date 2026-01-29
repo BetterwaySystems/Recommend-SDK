@@ -1,0 +1,40 @@
+{
+  "name": "ga-like-recommend-sdk",
+  "version": "1.1.0",
+  "description": "GA-like Recommend SDK (browser + node)",
+  "license": "UNLICENSED",
+  "main": "./dist/node/recommend-sdk-node.js",
+  "browser": "./dist/browser/recommend-sdk.mjs",
+  "exports": {
+    ".": {
+      "browser": "./dist/browser/recommend-sdk.mjs",
+      "import": "./dist/browser/recommend-sdk.mjs",
+      "require": "./dist/node/recommend-sdk-node.js"
+    },
+    "./browser": {
+      "import": "./dist/browser/recommend-sdk.mjs",
+      "require": "./dist/browser/recommend-sdk.cjs"
+    },
+    "./browser/global": "./dist/browser/recommend-sdk.js",
+    "./node": "./dist/node/recommend-sdk-node.js"
+  },
+  "files": [
+    "recommend-sdk.js",
+    "recommend-sdk.min.js",
+    "recommend-sdk-node.js",
+    "dist/",
+    "src/",
+    "examples/",
+    "README.md"
+  ],
+  "scripts": {
+    "clean": "node ./scripts/clean.mjs",
+    "build": "node ./scripts/build.mjs",
+    "lint": "echo \"(placeholder) add eslint later\"",
+    "test": "echo \"(placeholder) add tests later\""
+  },
+  "devDependencies": {
+    "esbuild": "0.23.1"
+  }
+}
+

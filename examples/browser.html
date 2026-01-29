@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>RecommendSDK Browser Example</title>
+    <script>
+      window.recommendSDKConfig = {
+        env: "production",
+        apiUrl: "https://api.example.com",
+        enableLogging: true,
+      };
+    </script>
+    <script src="../dist/browser/recommend-sdk.js"></script>
+  </head>
+  <body>
+    <h1>RecommendSDK Browser Example</h1>
+    <button id="btn">trackAction</button>
+    <script>
+      document.getElementById("btn").addEventListener("click", function () {
+        RecommendSDK.trackAction("click_button", { id: "btn" });
+      });
+    </script>
+  </body>
+</html>
+
