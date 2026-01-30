@@ -93,9 +93,9 @@ function normalizeApiUrl(apiUrl) {
   return String(apiUrl || "").replace(/\/$/, "");
 }
 var DEFAULT_API_URLS = {
-  development: "https://dev-ba.betterwaysys.com",
-  staging: "https://staging-ba.betterwaysys.com",
-  production: "https://ba.betterwaysys.com"
+  development: "https://dev-ba.redprinting.net",
+  staging: "https://stg-ba.redprinting.net",
+  production: "https://ba.redprinting.net"
 };
 function resolveApiUrl(options) {
   if (!options) return "";
@@ -136,10 +136,22 @@ var RecommendSDK = {
     emitIdentityEvents: true,
     autoPageView: true,
     autoRouteTracking: true,
+    flushOnRouteChange: true,
+    // SPA 페이지 이동 시 자동 flush (기본: true)
     journeyMaxLen: 100,
     batchSize: 20,
     flushIntervalMs: 1e4,
-    immediateEventTypes: { action: true }
+    enableAutoFlush: false,
+    // 주기적 자동 flush 비활성화 (페이지 이동/unload 시만 전송)
+    immediateEventTypes: {
+      action: true,
+      add_to_cart: true,
+      remove_from_cart: true,
+      purchase: true,
+      begin_checkout: true,
+      add_payment_info: true,
+      add_shipping_info: true
+    }
   },
   init(options) {
     if (this._initialized) {
@@ -162,9 +174,14 @@ var RecommendSDK = {
     if (typeof options.emitIdentityEvents === "boolean") this.config.emitIdentityEvents = options.emitIdentityEvents;
     if (typeof options.autoPageView === "boolean") this.config.autoPageView = options.autoPageView;
     if (typeof options.autoRouteTracking === "boolean") this.config.autoRouteTracking = options.autoRouteTracking;
+    if (typeof options.flushOnRouteChange === "boolean") this.config.flushOnRouteChange = options.flushOnRouteChange;
     if (typeof options.journeyMaxLen === "number") this.config.journeyMaxLen = options.journeyMaxLen;
     if (typeof options.batchSize === "number") this.config.batchSize = options.batchSize;
     if (typeof options.flushIntervalMs === "number") this.config.flushIntervalMs = options.flushIntervalMs;
+    if (typeof options.enableAutoFlush === "boolean") this.config.enableAutoFlush = options.enableAutoFlush;
+    if (options.immediateEventTypes && typeof options.immediateEventTypes === "object") {
+      this.config.immediateEventTypes = { ...this.config.immediateEventTypes, ...options.immediateEventTypes };
+    }
     const ls = typeof localStorage !== "undefined" ? localStorage : null;
     const ss = typeof sessionStorage !== "undefined" ? sessionStorage : null;
     let anon = options.anonymousId || safeGet(ls, STORAGE_KEYS.anonymousId);
@@ -192,7 +209,7 @@ var RecommendSDK = {
     this._startFlushTimer();
     this._setupLifecycleFlush();
     if (this.config.autoRouteTracking) this._hookRoutes();
-    if (this.config.autoPageView) this.trackPageView();
+    if (this.config.autoPageView) this.trackPageView(null, null, { immediate: true });
     this._log("info", "initialized", {
       apiUrl: this.config.apiUrl,
       env: this.config.env,
@@ -318,8 +335,13 @@ var RecommendSDK = {
     if (typeof window === "undefined" || !window.history) return;
     const self = this;
     function onRoute() {
+      self._log("info", "route change detected", { queueSize: self._queue ? self._queue.length : 0 });
+      if (self.config.flushOnRouteChange && self._queue && self._queue.length > 0) {
+        self._log("info", "flushing queue on route change", { count: self._queue.length });
+        self.flush();
+      }
       self._pageInstanceId = randomId("page");
-      self.trackPageView();
+      self.trackPageView(null, null, { immediate: true });
     }
     const origPush = window.history.pushState;
     const origReplace = window.history.replaceState;
@@ -350,14 +372,19 @@ var RecommendSDK = {
       }
     });
     this._routeHooked = true;
-    this._log("info", "route tracking hooked");
+    this._log("info", "route tracking hooked", {
+      pushStateHooked: typeof window.history.pushState === "function",
+      replaceStateHooked: typeof window.history.replaceState === "function"
+    });
   },
   _startFlushTimer() {
     const self = this;
     if (self._flushTimer) clearInterval(self._flushTimer);
-    self._flushTimer = setInterval(function() {
-      self.flush();
-    }, self.config.flushIntervalMs);
+    if (self.config.enableAutoFlush) {
+      self._flushTimer = setInterval(function() {
+        self.flush();
+      }, self.config.flushIntervalMs);
+    }
   },
   _pushJourney(entry) {
     this._journey.push(entry);
@@ -403,13 +430,17 @@ var RecommendSDK = {
     p.journey = (this._journey || []).slice(-this.config.journeyMaxLen);
     return p;
   },
-  trackPageView(url, payload) {
+  trackPageView(url, payload, options) {
     if (!this._initialized) {
       throw new Error("RecommendSDK not initialized. Call init() first.");
     }
+    options = options || {};
     const u = url || (typeof window !== "undefined" && window.location ? window.location.href : "");
     const ev = this._baseEvent("page_view", u, this._withJourney(payload));
     this._pushJourney({ ts: ev.timestamp, eventType: ev.eventType, url: ev.url });
+    if (options.immediate) {
+      return this._sendOne(ev);
+    }
     this._enqueue(ev);
   },
   trackEvent(eventType, payload, options) {

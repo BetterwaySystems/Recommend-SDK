@@ -29,9 +29,9 @@ function normalizeApiUrl(apiUrl) {
 
 // 기본 환경별 서빙 API (env 파일 불필요: init에서 env만 받아도 동작)
 const DEFAULT_API_URLS = {
-  development: "https://dev-ba.betterwaysys.com",
-  staging: "https://staging-ba.betterwaysys.com",
-  production: "https://ba.betterwaysys.com",
+  development: "https://dev-ba.redprinting.net",
+  staging: "https://stg-ba.redprinting.net",
+  production: "https://ba.redprinting.net",
 };
 
 function resolveApiUrl(options) {
@@ -81,7 +81,16 @@ class RecommendSDKNode {
       emitIdentityEvents: true,
       batchSize: 50,
       flushIntervalMs: 10000,
-      immediateEventTypes: { action: true },
+      enableAutoFlush: false, // 주기적 자동 flush 비활성화 (명시적 flush 호출 시만)
+      immediateEventTypes: { 
+        action: true,
+        add_to_cart: true,
+        remove_from_cart: true,
+        purchase: true,
+        begin_checkout: true,
+        add_payment_info: true,
+        add_shipping_info: true,
+      },
     };
   }
 
@@ -110,6 +119,10 @@ class RecommendSDKNode {
     if (typeof options.emitIdentityEvents === "boolean") this.config.emitIdentityEvents = options.emitIdentityEvents;
     if (typeof options.batchSize === "number") this.config.batchSize = options.batchSize;
     if (typeof options.flushIntervalMs === "number") this.config.flushIntervalMs = options.flushIntervalMs;
+    if (typeof options.enableAutoFlush === "boolean") this.config.enableAutoFlush = options.enableAutoFlush;
+    if (options.immediateEventTypes && typeof options.immediateEventTypes === "object") {
+      this.config.immediateEventTypes = { ...this.config.immediateEventTypes, ...options.immediateEventTypes };
+    }
 
     this.config.anonymousId = options.anonymousId || this.config.anonymousId || randomId("anon");
     this.config.userId = options.userId || this.config.userId || null;
@@ -310,9 +323,12 @@ class RecommendSDKNode {
 
   _startFlushTimer() {
     if (this._flushTimer) clearInterval(this._flushTimer);
-    this._flushTimer = setInterval(() => {
-      void this.flush();
-    }, this.config.flushIntervalMs);
+    // enableAutoFlush가 true일 때만 주기적 flush
+    if (this.config.enableAutoFlush) {
+      this._flushTimer = setInterval(() => {
+        void this.flush();
+      }, this.config.flushIntervalMs);
+    }
   }
 }
 

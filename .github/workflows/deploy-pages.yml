@@ -1,0 +1,114 @@
+name: Deploy to GitHub Pages
+
+on:
+  push:
+    branches: ["main"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: "pages"
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: "pnpm"
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Install deps
+        run: pnpm install --frozen-lockfile
+
+      - name: Build
+        run: pnpm run build
+
+      - name: Prepare Pages artifact
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION="$(node -p "require('./package.json').version")"
+          OUT="pages"
+          rm -rf "$OUT"
+          mkdir -p "$OUT"
+
+          # ship dist browser artifacts
+          cp -R dist/browser/* "$OUT/"
+
+          # also ship a versioned min file to avoid caching issues
+          if [[ -f "$OUT/recommend-sdk.min.js" ]]; then
+            cp "$OUT/recommend-sdk.min.js" "$OUT/recommend-sdk-${VERSION}.min.js"
+          fi
+
+          # simple landing page
+          cat > "$OUT/index.html" <<EOF
+          <!doctype html>
+          <html lang="en">
+            <head>
+              <meta charset="utf-8" />
+              <meta name="viewport" content="width=device-width, initial-scale=1" />
+              <title>Recommend SDK</title>
+              <style>
+                body { font-family: system-ui, -apple-system, sans-serif; max-width: 900px; margin: 40px auto; padding: 0 16px; }
+                code { background: #f3f3f3; padding: 2px 6px; border-radius: 6px; }
+                a { color: #1565c0; }
+                .box { border: 1px solid #ddd; border-radius: 10px; padding: 16px; margin: 16px 0; }
+              </style>
+            </head>
+            <body>
+              <h1>Recommend SDK</h1>
+              <p>Current version: <code>${VERSION}</code></p>
+              <div class="box">
+                <h3>Latest (may be cached)</h3>
+                <p><a href="./recommend-sdk.min.js">recommend-sdk.min.js</a></p>
+              </div>
+              <div class="box">
+                <h3>Versioned (recommended)</h3>
+                <p><a href="./recommend-sdk-${VERSION}.min.js">recommend-sdk-${VERSION}.min.js</a></p>
+              </div>
+              <div class="box">
+                <h3>Other builds</h3>
+                <ul>
+                  <li><a href="./recommend-sdk.js">recommend-sdk.js</a></li>
+                  <li><a href="./recommend-sdk.mjs">recommend-sdk.mjs</a></li>
+                  <li><a href="./recommend-sdk.cjs">recommend-sdk.cjs</a></li>
+                </ul>
+              </div>
+            </body>
+          </html>
+          EOF
+
+      - name: Setup Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: pages
+
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
+

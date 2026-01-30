@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Vanilla JS - Recommend SDK</title>
+  <style>
+    body { font-family: sans-serif; max-width: 600px; margin: 50px auto; padding: 0 20px; }
+    button { margin: 10px 5px; padding: 10px 20px; cursor: pointer; }
+    .product { border: 1px solid #ddd; padding: 15px; margin: 10px 0; }
+  </style>
+</head>
+<body>
+  <h1>🍦 바닐라 JS 예제</h1>
+  
+  <div class="product">
+    <h3>상품: 노트북</h3>
+    <p>가격: 1,500,000원</p>
+    <button id="addToCart">장바구니 담기</button>
+    <button id="selectColor">옵션 선택 (색상)</button>
+    <button id="selectSize">옵션 선택 (사이즈)</button>
+    <button id="purchase">구매하기</button>
+    <button id="purchaseCard">카드 결제 완료</button>
+  </div>
+
+  <!-- CDN 방식 (배포용 min 파일) -->
+  <script src="../dist/browser/recommend-sdk.min.js"></script>
+  
+  <script>
+    // 1) 초기화 init (env만 있어도 동작)
+    RecommendSDK.init({ env: 'development', enableLogging: true });
+
+    console.log('✅ SDK initialized', { version: RecommendSDK.version });
+
+    // demo state
+    const state = {
+      userId: null,
+      sku: 'LAPTOP-001',
+      // 5) sku 같은 option payload 예시: 옵션 선택할 때마다 누적
+      selectedOptions: [],
+    };
+
+    function renderAuth() {
+      console.log('🔐 auth state', { userId: state.userId });
+    }
+
+    // 2) 로그인/유저 인증 관련 (identify)
+    function login() {
+      state.userId = 'user_' + Math.random().toString(36).slice(2, 8);
+      RecommendSDK.identify({ userId: state.userId });
+      renderAuth();
+      alert('로그인 완료: ' + state.userId);
+    }
+
+    // 3) 로그아웃/인증 해제 (logout)
+    function logout() {
+      RecommendSDK.logout();
+      state.userId = null;
+      renderAuth();
+      alert('로그아웃 완료');
+    }
+
+    // 로그인/로그아웃 버튼(간단히 키보드로도 실행 가능)
+    window.login = login;
+    window.logout = logout;
+
+    // 이벤트 핸들러
+    document.getElementById('addToCart').addEventListener('click', function() {
+      RecommendSDK.trackEvent('add_to_cart', {
+        sku: state.sku,
+        name: '노트북',
+        price: 1500000,
+        quantity: 1,
+        // 옵션 누적값을 함께 전송 (현재 선택된 옵션 스냅샷)
+        options: state.selectedOptions.slice(),
+      });
+      alert('장바구니에 추가되었습니다!');
+    });
+
+    document.getElementById('selectColor').addEventListener('click', function() {
+      const color = ['red', 'blue', 'black'][Math.floor(Math.random() * 3)];
+      state.selectedOptions.push({ name: 'color', value: color });
+      RecommendSDK.trackEvent('select_option', {
+        sku: state.sku,
+        optionName: 'color',
+        optionValue: color,
+        // 누적 옵션 전체도 같이 보냄 (분석/디버깅용)
+        selectedOptions: state.selectedOptions.slice(),
+      });
+      alert('색상 선택: ' + color);
+    });
+
+    document.getElementById('selectSize').addEventListener('click', function() {
+      const size = ['S', 'M', 'L'][Math.floor(Math.random() * 3)];
+      state.selectedOptions.push({ name: 'size', value: size });
+      RecommendSDK.trackEvent('select_option', {
+        sku: state.sku,
+        optionName: 'size',
+        optionValue: size,
+        selectedOptions: state.selectedOptions.slice(),
+      });
+      alert('사이즈 선택: ' + size);
+    });
+
+    document.getElementById('purchase').addEventListener('click', function() {
+      RecommendSDK.trackEvent('purchase', {
+        orderId: 'ORD-' + Date.now(),
+        paymentMethod: 'unknown',
+        amount: 1500000,
+        items: [
+          {
+            sku: state.sku,
+            quantity: 1,
+            options: state.selectedOptions.slice(),
+          },
+        ],
+      });
+      alert('구매가 완료되었습니다!');
+    });
+
+    // 4) 구매시, 카드 구입 이벤트 예제 (purchase + paymentMethod=card)
+    document.getElementById('purchaseCard').addEventListener('click', function() {
+      RecommendSDK.trackEvent('purchase', {
+        orderId: 'ORD-' + Date.now(),
+        paymentMethod: 'card',
+        amount: 1500000,
+        items: [
+          {
+            sku: state.sku,
+            quantity: 1,
+            options: state.selectedOptions.slice(),
+          },
+        ],
+        // 카드 결제에서 종종 필요한 추가 정보 예시
+        card: { issuer: 'demo', installmentMonths: 0 },
+      });
+      alert('카드 결제 완료!');
+    });
+
+    // 페이지 이탈 전 자동 전송됨
+    window.addEventListener('beforeunload', function() {
+      console.log('페이지 이탈: 큐에 남은 이벤트 자동 전송');
+    });
+  </script>
+
+  <hr />
+  <p>
+    (데모) 콘솔에서 <code>login()</code> / <code>logout()</code> 호출해보세요.
+  </p>
+</body>
+</html>

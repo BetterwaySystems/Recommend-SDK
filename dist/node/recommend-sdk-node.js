@@ -14,9 +14,9 @@ function normalizeApiUrl(apiUrl) {
   return String(apiUrl || "").replace(/\/$/, "");
 }
 const DEFAULT_API_URLS = {
-  development: "https://dev-ba.betterwaysys.com",
-  staging: "https://staging-ba.betterwaysys.com",
-  production: "https://ba.betterwaysys.com"
+  development: "https://dev-ba.redprinting.net",
+  staging: "https://stg-ba.redprinting.net",
+  production: "https://ba.redprinting.net"
 };
 function resolveApiUrl(options) {
   if (!options) return "";
@@ -60,7 +60,17 @@ class RecommendSDKNode {
       emitIdentityEvents: true,
       batchSize: 50,
       flushIntervalMs: 1e4,
-      immediateEventTypes: { action: true }
+      enableAutoFlush: false,
+      // 주기적 자동 flush 비활성화 (명시적 flush 호출 시만)
+      immediateEventTypes: {
+        action: true,
+        add_to_cart: true,
+        remove_from_cart: true,
+        purchase: true,
+        begin_checkout: true,
+        add_payment_info: true,
+        add_shipping_info: true
+      }
     };
   }
   init(options) {
@@ -84,6 +94,10 @@ class RecommendSDKNode {
     if (typeof options.emitIdentityEvents === "boolean") this.config.emitIdentityEvents = options.emitIdentityEvents;
     if (typeof options.batchSize === "number") this.config.batchSize = options.batchSize;
     if (typeof options.flushIntervalMs === "number") this.config.flushIntervalMs = options.flushIntervalMs;
+    if (typeof options.enableAutoFlush === "boolean") this.config.enableAutoFlush = options.enableAutoFlush;
+    if (options.immediateEventTypes && typeof options.immediateEventTypes === "object") {
+      this.config.immediateEventTypes = { ...this.config.immediateEventTypes, ...options.immediateEventTypes };
+    }
     this.config.anonymousId = options.anonymousId || this.config.anonymousId || randomId("anon");
     this.config.userId = options.userId || this.config.userId || null;
     this.config.sessionId = options.sessionId || this.config.sessionId || randomId("sess");
@@ -259,9 +273,11 @@ class RecommendSDKNode {
   }
   _startFlushTimer() {
     if (this._flushTimer) clearInterval(this._flushTimer);
-    this._flushTimer = setInterval(() => {
-      void this.flush();
-    }, this.config.flushIntervalMs);
+    if (this.config.enableAutoFlush) {
+      this._flushTimer = setInterval(() => {
+        void this.flush();
+      }, this.config.flushIntervalMs);
+    }
   }
 }
 module.exports = new RecommendSDKNode();

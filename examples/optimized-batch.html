@@ -1,0 +1,302 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>최적화된 배치 전송 예제</title>
+  <style>
+    body { font-family: sans-serif; max-width: 800px; margin: 50px auto; padding: 0 20px; }
+    button { margin: 10px 5px; padding: 10px 20px; cursor: pointer; }
+    .immediate { background: #ff5722; color: white; border: none; }
+    .batched { background: #4caf50; color: white; border: none; }
+    .info { background: #f5f5f5; padding: 15px; margin: 20px 0; border-left: 4px solid #2196f3; }
+    .log { background: #263238; color: #aed581; padding: 15px; margin: 20px 0; font-family: monospace; font-size: 12px; max-height: 400px; overflow-y: auto; }
+  </style>
+</head>
+<body>
+  <h1>🚀 최적화된 배치 전송 예제</h1>
+  
+  <div class="info">
+    <h3>설정 전략</h3>
+    <ul>
+      <li><strong>enableAutoFlush: false</strong> → 10초마다 자동 전송 ❌</li>
+      <li><strong>flushOnRouteChange: true</strong> → SPA 페이지 이동 시 자동 전송 ✅</li>
+      <li><strong>add_to_cart, purchase 등</strong> → 즉시 전송 ✅</li>
+      <li><strong>SKU 선택, 옵션 변경</strong> → 큐에 누적 ✅</li>
+      <li><strong>페이지 이동(pushState/popstate)</strong> → 자동 flush ✅</li>
+      <li><strong>페이지 이탈(pagehide/beforeunload)</strong> → sendBeacon으로 전송 ✅</li>
+    </ul>
+  </div>
+
+  <h2>테스트 버튼</h2>
+  
+  <div>
+    <h3>즉시 전송 이벤트 (immediate)</h3>
+    <button class="immediate" onclick="addToCart()">🛒 장바구니 추가</button>
+    <button class="immediate" onclick="purchase()">💳 구매 완료</button>
+    <button class="immediate" onclick="purchaseCard()">💳 카드 결제 완료</button>
+    <button class="immediate" onclick="beginCheckout()">📦 체크아웃 시작</button>
+  </div>
+
+  <div>
+    <h3>배치 누적 이벤트 (batched)</h3>
+    <button class="batched" onclick="selectOption()">🎨 옵션 선택 (색상)</button>
+    <button class="batched" onclick="selectSize()">📏 옵션 선택 (사이즈)</button>
+    <button class="batched" onclick="viewProductDetail()">👁️ 상품 상세 조회</button>
+    <button class="batched" onclick="scrollProduct()">📜 스크롤 이벤트</button>
+  </div>
+
+  <div>
+    <h3>수동 제어</h3>
+    <button onclick="manualFlush()">🚀 수동 Flush (큐 비우기)</button>
+    <button onclick="checkQueue()">📊 큐 상태 확인</button>
+    <button onclick="clearLog()">🗑️ 로그 지우기</button>
+  </div>
+
+  <div>
+    <h3>인증 (로그인/로그아웃)</h3>
+    <button onclick="login()">🔐 로그인 (identify)</button>
+    <button onclick="logout()">🔓 로그아웃 (logout)</button>
+  </div>
+
+  <div>
+    <h3>페이지 이동 테스트</h3>
+    <button onclick="simulateNavigation()">🔄 페이지 이동 시뮬레이션</button>
+    <button onclick="window.location.href='https://example.com'">🌐 실제 이탈 (누적된 이벤트 전송됨)</button>
+  </div>
+
+  <div class="log" id="log"></div>
+
+  <script src="../dist/browser/recommend-sdk.js"></script>
+  <script>
+    console.log('%c[DEBUG] SDK Version:', 'color: blue; font-weight: bold;', RecommendSDK.version);
+  
+    // 로그 출력 헬퍼
+    function log(type, message, data) {
+      const logEl = document.getElementById('log');
+      const time = new Date().toLocaleTimeString();
+      const color = type === 'immediate' ? '#ff5722' : type === 'batched' ? '#4caf50' : '#2196f3';
+      logEl.innerHTML += `<div style="color: ${color}">[${time}] ${type.toUpperCase()}: ${message}</div>`;
+      if (data) {
+        logEl.innerHTML += `<div style="color: #78909c; margin-left: 20px;">${JSON.stringify(data, null, 2)}</div>`;
+      }
+      logEl.scrollTop = logEl.scrollHeight;
+    }
+
+    // demo state
+    const state = {
+      sku: 'SKU-123',
+      selectedOptions: [],
+      userId: null,
+    };
+
+    // 1) SDK 초기화
+    RecommendSDK.init({
+      env: 'development',
+      enableLogging: true,
+      enableAutoFlush: false, // 🔥 10초마다 자동 전송 비활성화
+      autoRouteTracking: true, // 🔥 history API 훅 활성화 (pushState/popstate 감지)
+      flushOnRouteChange: true, // 🚀 SPA 페이지 이동 시 자동 flush (기본값: true)
+      autoPageView: true, // 🚀 페이지 이동 시 page_view 자동 전송 (기본값: true)
+      batchSize: 10, // 10개 쌓이면 자동 전송
+      
+      // 즉시 전송할 이벤트 타입 (기본값 + 커스텀 추가 가능)
+      immediateEventTypes: {
+        action: true,
+        add_to_cart: true,
+        remove_from_cart: true,
+        purchase: true,
+        begin_checkout: true,
+        add_payment_info: true,
+        add_shipping_info: true,
+        // 필요시 추가:
+        // subscribe: true,
+        // cancel_subscription: true,
+      }
+    });
+
+    log('system', 'SDK 초기화 완료', {
+      config: {
+        enableAutoFlush: RecommendSDK.config.enableAutoFlush,
+        autoRouteTracking: RecommendSDK.config.autoRouteTracking,
+        flushOnRouteChange: RecommendSDK.config.flushOnRouteChange,
+        autoPageView: RecommendSDK.config.autoPageView,
+        batchSize: RecommendSDK.config.batchSize,
+        immediateEventTypes: Object.keys(RecommendSDK.config.immediateEventTypes),
+      },
+      note: 'history.pushState/popstate 감지 활성화됨'
+    });
+
+    // 2) 로그인/유저 인증 관련
+    function login() {
+      state.userId = 'user_' + Math.random().toString(36).slice(2, 8);
+      RecommendSDK.identify({ userId: state.userId });
+      log('system', '로그인(identify) 완료', { userId: state.userId });
+    }
+
+    // 3) 로그아웃/인증 해제
+    function logout() {
+      const prev = state.userId;
+      RecommendSDK.logout();
+      state.userId = null;
+      log('system', '로그아웃(logout) 완료', { prevUserId: prev });
+    }
+
+    // 즉시 전송 이벤트들
+    function addToCart() {
+      const sku = state.sku;
+      RecommendSDK.trackEvent('add_to_cart', {
+        sku: sku,
+        quantity: 1,
+        price: 29900,
+        options: state.selectedOptions.slice(),
+      });
+      log('immediate', '장바구니 추가 (즉시 전송)', { sku });
+    }
+
+    function purchase() {
+      RecommendSDK.trackEvent('purchase', {
+        orderId: 'ORD-' + Date.now(),
+        paymentMethod: 'unknown',
+        amount: 89700,
+        items: [
+          { sku: state.sku, quantity: 1, options: state.selectedOptions.slice() }
+        ]
+      });
+      log('immediate', '구매 완료 (즉시 전송)');
+    }
+
+    // 4) 구매시, 카드 구입 이벤트 예제
+    function purchaseCard() {
+      RecommendSDK.trackEvent('purchase', {
+        orderId: 'ORD-' + Date.now(),
+        paymentMethod: 'card',
+        amount: 89700,
+        items: [{ sku: state.sku, quantity: 1, options: state.selectedOptions.slice() }],
+        card: { issuer: 'demo', installmentMonths: 0 }
+      });
+      log('immediate', '카드 결제 완료 (즉시 전송)');
+    }
+
+    function beginCheckout() {
+      RecommendSDK.trackEvent('begin_checkout', {
+        cartValue: 59800,
+        itemCount: 3
+      });
+      log('immediate', '체크아웃 시작 (즉시 전송)');
+    }
+
+    // 배치 누적 이벤트들
+    function selectOption() {
+      const color = ['red', 'blue', 'green'][Math.floor(Math.random() * 3)];
+      // 5) sku 같은 option payload: 선택할 때마다 누적
+      state.selectedOptions.push({ name: 'color', value: color });
+      RecommendSDK.trackEvent('select_option', {
+        optionType: 'color',
+        optionValue: color,
+        sku: state.sku,
+        selectedOptions: state.selectedOptions.slice(),
+      });
+      log('batched', `옵션 선택: ${color} (큐에 추가됨)`, { queueSize: RecommendSDK._queue.length });
+    }
+
+    function selectSize() {
+      const size = ['S', 'M', 'L', 'XL'][Math.floor(Math.random() * 4)];
+      state.selectedOptions.push({ name: 'size', value: size });
+      RecommendSDK.trackEvent('select_option', {
+        optionType: 'size',
+        optionValue: size,
+        sku: state.sku,
+        selectedOptions: state.selectedOptions.slice(),
+      });
+      log('batched', `사이즈 선택: ${size} (큐에 추가됨)`, { queueSize: RecommendSDK._queue.length });
+    }
+
+    function viewProductDetail() {
+      RecommendSDK.trackEvent('view_item', {
+        sku: 'SKU-' + Math.floor(Math.random() * 1000),
+        category: 'electronics'
+      });
+      log('batched', '상품 상세 조회 (큐에 추가됨)', { queueSize: RecommendSDK._queue.length });
+    }
+
+    function scrollProduct() {
+      RecommendSDK.trackEvent('scroll', {
+        scrollDepth: Math.floor(Math.random() * 100),
+        page: 'product_detail'
+      });
+      log('batched', '스크롤 이벤트 (큐에 추가됨)', { queueSize: RecommendSDK._queue.length });
+    }
+
+    // 수동 제어
+    function manualFlush() {
+      const queueSize = RecommendSDK._queue.length;
+      if (queueSize === 0) {
+        log('system', '큐가 비어있습니다');
+        return;
+      }
+      RecommendSDK.flush();
+      log('system', `수동 Flush: ${queueSize}개 이벤트 전송됨`);
+    }
+
+    function checkQueue() {
+      const queueSize = RecommendSDK._queue.length;
+      log('system', `현재 큐 상태: ${queueSize}개 이벤트 대기 중`, {
+        batchSize: RecommendSDK.config.batchSize,
+        note: queueSize >= RecommendSDK.config.batchSize ? '⚠️ batchSize 도달 시 자동 전송됨' : '✅ 아직 전송 안 됨'
+      });
+    }
+
+    function clearLog() {
+      document.getElementById('log').innerHTML = '';
+    }
+
+    // 페이지 이동 시뮬레이션
+    function simulateNavigation() {
+      const queueBefore = RecommendSDK._queue.length;
+      log('system', `🔄 페이지 이동 시뮬레이션 시작`, { queueBefore });
+      
+      console.log('%c[DEBUG] Before pushState:', 'color: orange', {
+        queueLength: RecommendSDK._queue.length,
+        routeHooked: RecommendSDK._routeHooked,
+        autoRouteTracking: RecommendSDK.config.autoRouteTracking
+      });
+      
+      // file:// 환경에서는 pushState가 SecurityError를 낼 수 있어 우회 처리
+      if (window.location && window.location.protocol === 'file:') {
+        if (queueBefore > 0) RecommendSDK.flush();
+        RecommendSDK.trackPageView(window.location.href + '#route=' + Date.now(), null, { immediate: true });
+        log('system', 'file:// 환경: pushState 대신 flush + page_view 즉시 전송', { queueBefore });
+        return;
+      }
+
+      // http(s) 환경에서는 history.pushState 호출 → SDK가 자동으로 감지
+      window.history.pushState({}, '', '/new-page?t=' + Date.now());
+      
+      console.log('%c[DEBUG] After pushState:', 'color: green', {
+        queueLength: RecommendSDK._queue.length
+      });
+      
+      // SDK의 _hookRoutes가 감지해서 자동 처리 (동기적으로 즉시 실행됨)
+      setTimeout(() => {
+        const queueAfter = RecommendSDK._queue.length;
+        log('system', '✅ SDK 자동 처리 결과', {
+          queueBefore: `${queueBefore}개`,
+          queueAfter: `${queueAfter}개`,
+          expected: queueBefore > 0 ? '큐가 비워졌어야 함 (0개)' : '변화 없음',
+          actual: queueAfter === 0 ? '✅ 정상' : '❌ 문제 발생!'
+        });
+      }, 100);
+    }
+
+    // 페이지 이탈 시 자동 전송 테스트용
+    window.addEventListener('beforeunload', function(e) {
+      const queueSize = RecommendSDK._queue.length;
+      if (queueSize > 0) {
+        console.log(`[페이지 이탈] ${queueSize}개 이벤트를 sendBeacon으로 전송`);
+        // SDK 내부에서 자동으로 flush({ useBeacon: true }) 호출됨
+      }
+    });
+  </script>
+</body>
+</html>

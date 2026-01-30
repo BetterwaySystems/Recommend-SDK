@@ -91,9 +91,9 @@ function normalizeApiUrl(apiUrl) {
 
 // 기본 환경별 서빙 API (env 파일 불필요: init에서 env만 받아도 동작)
 const DEFAULT_API_URLS = {
-  development: "https://dev-ba.betterwaysys.com",
-  staging: "https://staging-ba.betterwaysys.com",
-  production: "https://ba.betterwaysys.com",
+  development: "https://dev-ba.redprinting.net",
+  staging: "https://stg-ba.redprinting.net",
+  production: "https://ba.redprinting.net",
 };
 
 function resolveApiUrl(options) {
@@ -143,10 +143,20 @@ const RecommendSDK = {
     emitIdentityEvents: true,
     autoPageView: true,
     autoRouteTracking: true,
+    flushOnRouteChange: true, // SPA 페이지 이동 시 자동 flush (기본: true)
     journeyMaxLen: 100,
     batchSize: 20,
     flushIntervalMs: 10000,
-    immediateEventTypes: { action: true },
+    enableAutoFlush: false, // 주기적 자동 flush 비활성화 (페이지 이동/unload 시만 전송)
+    immediateEventTypes: { 
+      action: true,
+      add_to_cart: true,
+      remove_from_cart: true,
+      purchase: true,
+      begin_checkout: true,
+      add_payment_info: true,
+      add_shipping_info: true,
+    },
   },
 
   init(options) {
@@ -174,9 +184,14 @@ const RecommendSDK = {
     if (typeof options.emitIdentityEvents === "boolean") this.config.emitIdentityEvents = options.emitIdentityEvents;
     if (typeof options.autoPageView === "boolean") this.config.autoPageView = options.autoPageView;
     if (typeof options.autoRouteTracking === "boolean") this.config.autoRouteTracking = options.autoRouteTracking;
+    if (typeof options.flushOnRouteChange === "boolean") this.config.flushOnRouteChange = options.flushOnRouteChange;
     if (typeof options.journeyMaxLen === "number") this.config.journeyMaxLen = options.journeyMaxLen;
     if (typeof options.batchSize === "number") this.config.batchSize = options.batchSize;
     if (typeof options.flushIntervalMs === "number") this.config.flushIntervalMs = options.flushIntervalMs;
+    if (typeof options.enableAutoFlush === "boolean") this.config.enableAutoFlush = options.enableAutoFlush;
+    if (options.immediateEventTypes && typeof options.immediateEventTypes === "object") {
+      this.config.immediateEventTypes = { ...this.config.immediateEventTypes, ...options.immediateEventTypes };
+    }
 
     // IDs: anonymous은 항상 생성/유지, user는 필요 시 setUser로 설정 권장
     const ls = typeof localStorage !== "undefined" ? localStorage : null;
@@ -214,7 +229,7 @@ const RecommendSDK = {
     this._startFlushTimer();
     this._setupLifecycleFlush();
     if (this.config.autoRouteTracking) this._hookRoutes();
-    if (this.config.autoPageView) this.trackPageView();
+    if (this.config.autoPageView) this.trackPageView(null, null, { immediate: true });
 
     this._log("info", "initialized", {
       apiUrl: this.config.apiUrl,
@@ -356,9 +371,15 @@ const RecommendSDK = {
 
     const self = this;
     function onRoute() {
-      // 새 페이지로 간주: pageInstanceId 갱신
+      self._log("info", "route change detected", { queueSize: self._queue ? self._queue.length : 0 });
+      // 페이지 이동 시 큐에 있는 이벤트 전송
+      if (self.config.flushOnRouteChange && self._queue && self._queue.length > 0) {
+        self._log("info", "flushing queue on route change", { count: self._queue.length });
+        self.flush();
+      }
+      // 새 페이지로 간주: pageInstanceId 갱신 + page_view 즉시 전송
       self._pageInstanceId = randomId("page");
-      self.trackPageView();
+      self.trackPageView(null, null, { immediate: true });
     }
 
     const origPush = window.history.pushState;
@@ -391,15 +412,21 @@ const RecommendSDK = {
     });
 
     this._routeHooked = true;
-    this._log("info", "route tracking hooked");
+    this._log("info", "route tracking hooked", { 
+      pushStateHooked: typeof window.history.pushState === "function",
+      replaceStateHooked: typeof window.history.replaceState === "function"
+    });
   },
 
   _startFlushTimer() {
     const self = this;
     if (self._flushTimer) clearInterval(self._flushTimer);
-    self._flushTimer = setInterval(function () {
-      self.flush();
-    }, self.config.flushIntervalMs);
+    // enableAutoFlush가 true일 때만 주기적 flush
+    if (self.config.enableAutoFlush) {
+      self._flushTimer = setInterval(function () {
+        self.flush();
+      }, self.config.flushIntervalMs);
+    }
   },
 
   _pushJourney(entry) {
@@ -449,14 +476,19 @@ const RecommendSDK = {
     return p;
   },
 
-  trackPageView(url, payload) {
+  trackPageView(url, payload, options) {
     if (!this._initialized) {
       throw new Error("RecommendSDK not initialized. Call init() first.");
     }
+    options = options || {};
     const u = url || (typeof window !== "undefined" && window.location ? window.location.href : "");
     const ev = this._baseEvent("page_view", u, this._withJourney(payload));
     this._pushJourney({ ts: ev.timestamp, eventType: ev.eventType, url: ev.url });
-    // page_view는 기본적으로 배치로 보냄(트래픽 절감)
+    
+    // immediate 옵션이 명시되면 즉시 전송, 아니면 큐에 추가
+    if (options.immediate) {
+      return this._sendOne(ev);
+    }
     this._enqueue(ev);
   },
 
