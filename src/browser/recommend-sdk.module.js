@@ -162,9 +162,21 @@ const RecommendSDK = {
   init(options) {
     if (this._initialized) {
       this._log("warn", "already initialized");
+      // 이미 초기화된 경우 apiUrl과 env는 변경하지 않음 (언어 변경 등으로 재호출되어도 유지)
       return;
     }
     options = options || {};
+
+    // 이미 apiUrl이 설정되어 있으면 변경하지 않음 (언어 변경 등으로 재초기화되어도 유지)
+    if (this.config.apiUrl) {
+      this._log("info", "apiUrl already set, preserving existing configuration", { apiUrl: this.config.apiUrl, env: this.config.env });
+      this._initialized = true;
+      this._startFlushTimer();
+      this._setupLifecycleFlush();
+      if (this.config.autoRouteTracking) this._hookRoutes();
+      if (this.config.autoPageView) this.trackPageView(null, null, { immediate: true });
+      return;
+    }
 
     const apiUrl = resolveApiUrl(options);
     if (!apiUrl) {
@@ -378,8 +390,22 @@ const RecommendSDK = {
         self.flush();
       }
       // 새 페이지로 간주: pageInstanceId 갱신 + page_view 즉시 전송
-      self._pageInstanceId = randomId("page");
-      self.trackPageView(null, null, { immediate: true });
+      // 단, 메인 패스(예: "/")에서는 page_view를 보내지 않음
+      try {
+        const pathname =
+          typeof window !== "undefined" && window.location && typeof window.location.pathname === "string"
+            ? window.location.pathname
+            : null;
+
+        if (pathname && pathname !== "/") {
+          self._pageInstanceId = randomId("page");
+          self.trackPageView(null, null, { immediate: true });
+        }
+      } catch (_) {
+        // pathname 조회 실패 시에는 기존 동작 유지
+        self._pageInstanceId = randomId("page");
+        self.trackPageView(null, null, { immediate: true });
+      }
     }
 
     const origPush = window.history.pushState;
@@ -423,9 +449,9 @@ const RecommendSDK = {
     if (self._flushTimer) clearInterval(self._flushTimer);
     // enableAutoFlush가 true일 때만 주기적 flush
     if (self.config.enableAutoFlush) {
-      self._flushTimer = setInterval(function () {
-        self.flush();
-      }, self.config.flushIntervalMs);
+    self._flushTimer = setInterval(function () {
+      self.flush();
+    }, self.config.flushIntervalMs);
     }
   },
 

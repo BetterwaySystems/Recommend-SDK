@@ -325,9 +325,9 @@ class RecommendSDKNode {
     if (this._flushTimer) clearInterval(this._flushTimer);
     // enableAutoFlush가 true일 때만 주기적 flush
     if (this.config.enableAutoFlush) {
-      this._flushTimer = setInterval(() => {
-        void this.flush();
-      }, this.config.flushIntervalMs);
+    this._flushTimer = setInterval(() => {
+      void this.flush();
+    }, this.config.flushIntervalMs);
     }
   }
 }

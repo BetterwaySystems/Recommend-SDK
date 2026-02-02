@@ -159,6 +159,15 @@ var RecommendSDK = {
       return;
     }
     options = options || {};
+    if (this.config.apiUrl) {
+      this._log("info", "apiUrl already set, preserving existing configuration", { apiUrl: this.config.apiUrl, env: this.config.env });
+      this._initialized = true;
+      this._startFlushTimer();
+      this._setupLifecycleFlush();
+      if (this.config.autoRouteTracking) this._hookRoutes();
+      if (this.config.autoPageView) this.trackPageView(null, null, { immediate: true });
+      return;
+    }
     const apiUrl = resolveApiUrl(options);
     if (!apiUrl) {
       throw new Error("RecommendSDK: apiUrl (or apiUrls+env) is required");
@@ -340,8 +349,16 @@ var RecommendSDK = {
         self._log("info", "flushing queue on route change", { count: self._queue.length });
         self.flush();
       }
-      self._pageInstanceId = randomId("page");
-      self.trackPageView(null, null, { immediate: true });
+      try {
+        const pathname = typeof window !== "undefined" && window.location && typeof window.location.pathname === "string" ? window.location.pathname : null;
+        if (pathname && pathname !== "/") {
+          self._pageInstanceId = randomId("page");
+          self.trackPageView(null, null, { immediate: true });
+        }
+      } catch (_) {
+        self._pageInstanceId = randomId("page");
+        self.trackPageView(null, null, { immediate: true });
+      }
     }
     const origPush = window.history.pushState;
     const origReplace = window.history.replaceState;
